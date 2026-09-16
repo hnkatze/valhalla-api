@@ -4,8 +4,10 @@ set -euo pipefail
 
 NGINX_IMAGE="${NGINX_IMAGE:-nginx:1.30-alpine}"
 STUB_IMAGE="${STUB_IMAGE:-hashicorp/http-echo:1.0.0}"
-API_KEY="test-key-123"
+# 48 hex chars, the length openssl rand -hex 24 produces; short keys hide nginx map hash sizing errors.
+API_KEY="0123456789abcdef0123456789abcdef0123456789abcdef"
 STUB_BODY='{"ok":true}'
+DOCS_BODY='{"docs":true}'
 
 # Docker Desktop on Windows needs a native path for bind mounts and no MSYS path mangling.
 # The MSYS override is scoped to docker only: globally it would break curl's "-o /dev/null".
@@ -25,6 +27,7 @@ TEMPLATES_DIR="${REPO_ROOT}/nginx/templates"
 SUFFIX="$$-${RANDOM}"
 NETWORK="valhalla-auth-test-${SUFFIX}"
 STUB="valhalla-stub-${SUFFIX}"
+DOCS_STUB="swagger-stub-${SUFFIX}"
 NGINX_A="nginx-auth-test-${SUFFIX}"
 NGINX_B="nginx-auth-test-emptykey-${SUFFIX}"
 
@@ -37,7 +40,7 @@ assert_eq() {
 }
 
 cleanup() {
-  docker rm -f "${NGINX_A}" "${NGINX_B}" "${STUB}" >/dev/null 2>&1 || true
+  docker rm -f "${NGINX_A}" "${NGINX_B}" "${STUB}" "${DOCS_STUB}" >/dev/null 2>&1 || true
   docker network rm "${NETWORK}" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
@@ -70,6 +73,7 @@ wait_for_http() {
 }
 
 status_of() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
+location_of() { curl -s -o /dev/null -D - "$@" | tr -d '\r' | awk 'tolower($1) == "location:" {print $2}'; }
 
 if [[ ! -d "${TEMPLATES_DIR}" ]]; then
   printf 'FAIL  templates directory missing: %s\n' "${TEMPLATES_DIR}"
@@ -80,6 +84,8 @@ docker network create "${NETWORK}" >/dev/null
 # The alias is what nginx resolves, so the config under test runs unchanged against the stub.
 dkr run -d --name "${STUB}" --network "${NETWORK}" --network-alias valhalla "${STUB_IMAGE}" \
   -listen=:8002 -text="${STUB_BODY}" >/dev/null
+dkr run -d --name "${DOCS_STUB}" --network "${NETWORK}" --network-alias swagger-ui "${STUB_IMAGE}" \
+  -listen=:8080 -text="${DOCS_BODY}" >/dev/null
 
 if ! PORT="$(start_nginx "${NGINX_A}" "${API_KEY}")"; then
   printf 'FAIL  nginx did not start with a configured key\n'
@@ -104,6 +110,15 @@ assert_eq "correct key POST /route -> 200" "200" \
 assert_eq "correct key POST /route -> body proxied from stub" "${STUB_BODY}" \
   "$(curl -s -X POST -H "X-API-Key: ${API_KEY}" -H 'Content-Type: application/json' -d '{}' "${BASE}/route" | tr -d '\n')"
 assert_eq "correct key GET /status -> 200" "200" "$(status_of -H "X-API-Key: ${API_KEY}" "${BASE}/status")"
+
+# Swagger UI is public; the docs location must not leak the key exemption to the API.
+assert_eq "no header GET /docs/ -> 200" "200" "$(status_of "${BASE}/docs/")"
+assert_eq "no header GET /docs/ -> body proxied from docs stub" "${DOCS_BODY}" \
+  "$(curl -s "${BASE}/docs/" | tr -d '\n')"
+assert_eq "no header GET /docs -> 301" "301" "$(status_of "${BASE}/docs")"
+assert_eq "no header GET /docs -> relative Location /docs/" "/docs/" "$(location_of "${BASE}/docs")"
+assert_eq "no header GET /route -> 401" "401" "$(status_of "${BASE}/route")"
+assert_eq "no header GET /docsx -> 401" "401" "$(status_of "${BASE}/docsx")"
 
 # An empty configured key must fail closed: nginx either refuses to start or answers 401.
 PORT_B="$(start_nginx "${NGINX_B}" "" || true)"

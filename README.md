@@ -10,11 +10,13 @@ Self-hosted [Valhalla](https://valhalla.github.io/valhalla/) routing API for Hon
 ## Architecture
 
 ```
-client --X-API-Key--> nginx:80 --> valhalla:8002 (not published)
-                                      |
-                                      +-- /custom_files  <-- pull-tiles.sh <-- S3 (tile set)
-                                                              ^
-                                    build-tiles.sh (one-off job) --> push-tiles.sh
+client --X-API-Key--> nginx:80 --/*-----> valhalla:8002 (not published)
+                        |                   |
+                        +--/docs/ (no key)--+-> swagger-ui:8080 (not published)
+                                            |
+                                            +-- /custom_files  <-- pull-tiles.sh <-- S3 (tile set)
+                                                                    ^
+                                          build-tiles.sh (one-off job) --> push-tiles.sh
 ```
 
 One `t4g.medium` (ARM64 Graviton) EC2 instance runs the `runtime` compose profile. Tiles are
@@ -82,6 +84,20 @@ All Valhalla endpoints are proxied under `/`. Every request needs `X-API-Key`. S
 Responses from nginx itself are JSON: `401 {"error":"unauthorized"}` and
 `429 {"error":"rate_limited"}` (20 req/s per IP, burst 40).
 
+## API docs (Swagger UI)
+
+`http://<host>/docs/` serves Swagger UI for this deployment. The docs are public (no key);
+every other path stays behind `X-API-Key`. Click **Authorize**, paste the key under
+`ApiKeyAuth`, and "Try it out" sends real requests to the same origin, so no CORS setup is
+needed. The key is kept in browser storage until you log out (`PERSIST_AUTHORIZATION`).
+
+`docs/openapi.yaml` is generated, not hand-written: `scripts/sync-openapi.sh` downloads the
+upstream spec at the Valhalla tag pinned in `docker-compose.yml`, merges
+`docs/openapi.patch.yaml` on top (title, same-origin server, `ApiKeyAuth` scheme) and drops
+`/height`. The result is versioned so the runtime host needs neither network nor `yq` at boot.
+Re-run the script after bumping the Valhalla tag; `tests/openapi.test.sh` fails when the
+spec's version and the compose tag disagree.
+
 ## Tile lifecycle
 
 1. **Build** (`scripts/build-tiles.sh`): removes stale PBFs, runs the `build` profile
@@ -133,16 +149,18 @@ API beyond a trusted network; the API key travels in a header.
 ## Tests
 
 ```bash
-bash tests/nginx-auth.test.sh      # nginx gate against a stub upstream, needs Docker
+bash tests/nginx-auth.test.sh      # nginx gate and /docs passthrough against stub upstreams, needs Docker
+bash tests/openapi.test.sh         # generated spec matches the pinned tag and lints, needs Docker
 cp .env.example .env && docker compose --profile runtime config -q && docker compose --profile build config -q
 terraform -chdir=infra/terraform init -backend=false && terraform -chdir=infra/terraform validate
 shellcheck scripts/*.sh tests/*.sh
 ```
 
-CI (`.github/workflows/ci.yml`) runs the same four checks on every push and pull request.
+CI (`.github/workflows/ci.yml`) runs the same five checks on every push and pull request.
 
 ## Upgrading Valhalla
 
 Bump the tag in the `x-valhalla-image` anchor at the top of `docker-compose.yml` (the only
-place it appears), then rebuild and republish the tiles with `scripts/build-tiles.sh`: the tile
-format can change between Valhalla versions, and a mismatched tar fails at startup.
+place it appears), run `scripts/sync-openapi.sh` to regenerate the API docs, then rebuild and
+republish the tiles with `scripts/build-tiles.sh`: the tile format can change between Valhalla
+versions, and a mismatched tar fails at startup.
