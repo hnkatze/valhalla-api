@@ -1,0 +1,10 @@
+# Copy to terraform.tfvars (git-ignored) and adjust. The API key is NOT set here:
+#   export TF_VAR_valhalla_api_key="$(openssl rand -hex 32)"
+
+aws_region      = "us-east-1"
+project         = "valhalla-api"
+instance_type   = "t4g.medium"
+allowed_cidrs   = ["203.0.113.0/24"]
+repo_url        = "https://github.com/your-org/valhalla-api.git"
+git_ref         = "main"
+tiles_s3_prefix = "valhalla/honduras"
