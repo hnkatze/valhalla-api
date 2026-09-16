@@ -1,0 +1,66 @@
+name: valhalla-api
+
+# Single place to bump the Valhalla version. Tiles must be rebuilt after a bump.
+x-valhalla-image: &valhalla-image ghcr.io/valhalla/valhalla-scripted:3.8.3
+
+services:
+  # --- runtime profile: serve pre-built tiles pulled from S3 -------------------------------
+  valhalla:
+    image: *valhalla-image
+    profiles: ["runtime"]
+    restart: unless-stopped
+    volumes:
+      - ./custom_files:/custom_files
+    environment:
+      use_tiles_ignore_pbf: "True"
+      serve_tiles: "True"
+      force_rebuild: "False"
+      build_elevation: "False"
+      build_transit: "False"
+      # Admin/timezone data is baked into the tiles at build time; a missing DB on the
+      # runtime host must never trigger a rebuild, which has no PBF and would only crash-loop.
+      build_admins: "False"
+      build_time_zones: "False"
+      use_default_speeds_config: "False"
+      update_existing_config: "True"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8002/status"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 120s
+
+  nginx:
+    image: nginx:1.30-alpine
+    profiles: ["runtime"]
+    restart: unless-stopped
+    ports:
+      - "${NGINX_PORT:-80}:80"
+    volumes:
+      - ./nginx/templates:/etc/nginx/templates:ro
+    environment:
+      VALHALLA_API_KEY: ${VALHALLA_API_KEY:?VALHALLA_API_KEY must be set in .env}
+      # Restrict envsubst to our variables so nginx's own $host, $http_* etc. survive rendering.
+      NGINX_ENVSUBST_FILTER: "^VALHALLA_"
+    depends_on:
+      valhalla:
+        condition: service_healthy
+
+  # --- build profile: one-off tile build, container exits when done -------------------------
+  valhalla-build:
+    image: *valhalla-image
+    profiles: ["build"]
+    volumes:
+      - ./custom_files:/custom_files
+    environment:
+      tile_urls: ${VALHALLA_TILE_URLS:-https://download.geofabrik.de/central-america/honduras-latest.osm.pbf}
+      serve_tiles: "False"
+      use_tiles_ignore_pbf: "False"
+      force_rebuild: "True"
+      build_tar: "True"
+      build_elevation: "False"
+      build_transit: "False"
+      build_admins: "True"
+      build_time_zones: "True"
+      use_default_speeds_config: "True"
+      update_existing_config: "True"

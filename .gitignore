@@ -1,0 +1,13 @@
+# Secrets and host-specific configuration
+.env
+
+# Valhalla data (tiles, PBF, config) is built and synced through S3, never committed
+custom_files/
+
+# Terraform
+*.tfvars
+!*.tfvars.example
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
