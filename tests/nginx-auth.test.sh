@@ -4,7 +4,8 @@ set -euo pipefail
 
 NGINX_IMAGE="${NGINX_IMAGE:-nginx:1.30-alpine}"
 STUB_IMAGE="${STUB_IMAGE:-hashicorp/http-echo:1.0.0}"
-API_KEY="test-key-123"
+# 48 hex chars, the length openssl rand -hex 24 produces; short keys hide nginx map hash sizing errors.
+API_KEY="0123456789abcdef0123456789abcdef0123456789abcdef"
 STUB_BODY='{"ok":true}'
 DOCS_BODY='{"docs":true}'
 

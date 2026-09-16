@@ -1,6 +1,9 @@
 # Rendered by the nginx image's envsubst into /etc/nginx/conf.d/default.conf.
 # conf.d files are included inside http {}, so map and limit_req_zone are valid here.
 
+# A 48-char key exceeds the default 64-byte bucket, so nginx refuses to build the map at all.
+map_hash_bucket_size 128;
+
 map $http_x_api_key $valhalla_key_ok {
     default 0;
     "" 0;
