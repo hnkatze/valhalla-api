@@ -1,0 +1,26 @@
+# Local overlay merged on top of the upstream Valhalla spec by scripts/sync-openapi.sh.
+# Maps merge, arrays replace: `servers` and `security` here fully override upstream's.
+info:
+  title: Valhalla Routing API
+  version: "3.8.3" # rewritten by scripts/sync-openapi.sh from the compose image tag
+  description: |
+    Self-hosted Valhalla for Honduras (Geofabrik `honduras-latest` extract, no traffic data).
+    Clients use the `motorcycle` costing.
+
+    Every request needs the `X-API-Key` header; use **Authorize** to set it once. Responses
+    from the gateway itself are JSON: `401 {"error":"unauthorized"}`, `429 {"error":"rate_limited"}`
+    (20 req/s per IP, burst 40). Request bodies are capped at 1 MB.
+
+    All POST endpoints accept JSON (some also protobuf with `Content-Type: application/x-protobuf`).
+    Elevation (`/height`) is not available: elevation tiles are not built.
+servers:
+  - url: /
+    description: This deployment (same origin as the docs)
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+security:
+  - ApiKeyAuth: []

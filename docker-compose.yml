@@ -45,6 +45,22 @@ services:
     depends_on:
       valhalla:
         condition: service_healthy
+      swagger-ui:
+        condition: service_started
+
+  # Public API docs, reachable only through nginx at /docs/. The spec is versioned in the repo
+  # (scripts/sync-openapi.sh regenerates it), so the host needs no network access at boot.
+  swagger-ui:
+    image: swaggerapi/swagger-ui:v5.33.0
+    profiles: ["runtime"]
+    restart: unless-stopped
+    volumes:
+      - ./docs/openapi.yaml:/spec/openapi.yaml:ro
+    environment:
+      SWAGGER_JSON: /spec/openapi.yaml
+      BASE_URL: /docs
+      TRY_IT_OUT_ENABLED: "true"
+      PERSIST_AUTHORIZATION: "true"
 
   # --- build profile: one-off tile build, container exits when done -------------------------
   valhalla-build:
