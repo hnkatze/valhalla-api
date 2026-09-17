@@ -40,6 +40,10 @@ services:
       - ./nginx/templates:/etc/nginx/templates:ro
     environment:
       VALHALLA_API_KEY: ${VALHALLA_API_KEY:?VALHALLA_API_KEY must be set in .env}
+      # Source of trusted X-Forwarded-For headers, so nginx can recover the real client IP
+      # behind a load balancer. Loopback is a no-op default for a host reached directly; on
+      # AWS this is the VPC CIDR.
+      VALHALLA_TRUSTED_PROXY_CIDR: ${VALHALLA_TRUSTED_PROXY_CIDR:-127.0.0.1}
       # Restrict envsubst to our variables so nginx's own $host, $http_* etc. survive rendering.
       NGINX_ENVSUBST_FILTER: "^VALHALLA_"
     depends_on:

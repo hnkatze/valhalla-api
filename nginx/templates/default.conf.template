@@ -19,6 +19,15 @@ server {
     # Relative Location headers survive a non-default NGINX_PORT and a TLS terminator in front.
     absolute_redirect off;
 
+    # Detras de un load balancer $remote_addr seria la ENI del balanceador para todos los
+    # requests: el rate limit por IP colapsaria en un solo bucket global y X-Real-IP no
+    # serviria. Se confia en X-Forwarded-For solo desde adentro de la VPC, recorriendolo de
+    # derecha a izquierda para que gane la direccion que agrego el balanceador y no la que
+    # pudo haber mandado el cliente.
+    set_real_ip_from ${VALHALLA_TRUSTED_PROXY_CIDR};
+    real_ip_header X-Forwarded-For;
+    real_ip_recursive on;
+
     # Docker's embedded DNS plus a variable upstream re-resolves valhalla after it restarts
     # with a new IP; depends_on only orders the first start.
     resolver 127.0.0.11 valid=10s ipv6=off;
@@ -29,6 +38,21 @@ server {
     limit_req zone=valhalla_api burst=40 nodelay;
     limit_req_status 429;
     error_page 429 = @rate_limited;
+
+    # Health check del target group. Un health check de ALB no puede mandar headers custom,
+    # asi que esta es la unica ruta exenta del gate. Hace proxy al /status de valhalla en vez
+    # de devolver un 200 propio: si valhalla se cae, el chequeo falla en vez de reportar sano
+    # un backend muerto. El listener del ALB responde 404 para /health desde afuera, y los
+    # health checks llegan directo al target sin pasar por las reglas, asi que no queda
+    # accesible desde internet.
+    location = /health {
+        access_log off;
+        proxy_pass $valhalla_upstream/status;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_connect_timeout 2s;
+        proxy_read_timeout 5s;
+    }
 
     location / {
         if ($valhalla_key_ok = 0) {
