@@ -120,13 +120,13 @@ assert_eq "/health does not open the gate for /route" "401" "$(status_of -X POST
 assert_eq "/healthx is not exempt" "401" "$(status_of "${BASE}/healthx")"
 
 # Swagger UI is public; the docs location must not leak the key exemption to the API.
-assert_eq "no header GET /docs/ -> 200" "200" "$(status_of "${BASE}/docs/")"
-assert_eq "no header GET /docs/ -> body proxied from docs stub" "${DOCS_BODY}" \
-  "$(curl -s "${BASE}/docs/" | tr -d '\n')"
-assert_eq "no header GET /docs -> 301" "301" "$(status_of "${BASE}/docs")"
-assert_eq "no header GET /docs -> relative Location /docs/" "/docs/" "$(location_of "${BASE}/docs")"
+assert_eq "no header GET /swagger/ -> 200" "200" "$(status_of "${BASE}/swagger/")"
+assert_eq "no header GET /swagger/ -> body proxied from docs stub" "${DOCS_BODY}" \
+  "$(curl -s "${BASE}/swagger/" | tr -d '\n')"
+assert_eq "no header GET /swagger -> 301" "301" "$(status_of "${BASE}/swagger")"
+assert_eq "no header GET /swagger -> relative Location /swagger/" "/swagger/" "$(location_of "${BASE}/swagger")"
 assert_eq "no header GET /route -> 401" "401" "$(status_of "${BASE}/route")"
-assert_eq "no header GET /docsx -> 401" "401" "$(status_of "${BASE}/docsx")"
+assert_eq "no header GET /swaggerx -> 401" "401" "$(status_of "${BASE}/swaggerx")"
 
 # An empty configured key must fail closed: nginx either refuses to start or answers 401.
 PORT_B="$(start_nginx "${NGINX_B}" "" || true)"
