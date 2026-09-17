@@ -75,6 +75,22 @@ services:
       TRY_IT_OUT_ENABLED: "true"
       PERSIST_AUTHORIZATION: "true"
 
+  # --- release profile: the single image the ECS task runs ----------------------------------
+  # The ECS deploy template takes one container per task, so nginx, Valhalla and the docs assets
+  # ship together with the tiles baked in. IMAGE_URI is the ECR tag the pipeline builds and
+  # pushes; locally it falls back to a plain tag so `docker compose --profile release build`
+  # works without any environment.
+  api:
+    profiles: ["release"]
+    image: ${IMAGE_URI:-valhalla-api:local}
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # Reuses the anchor above so the Valhalla version still has a single source of truth.
+        VALHALLA_IMAGE: *valhalla-image
+        SWAGGER_IMAGE: swaggerapi/swagger-ui:v5.33.0
+
   # --- build profile: one-off tile build, container exits when done -------------------------
   valhalla-build:
     image: *valhalla-image
