@@ -12,7 +12,7 @@ Self-hosted [Valhalla](https://valhalla.github.io/valhalla/) routing API for Hon
 ```
 client --X-API-Key--> nginx:80 --/*-----> valhalla:8002 (not published)
                         |                   |
-                     +--/swagger/ (no key)--+-> swagger-ui:8080 (not published)
+                        +--/docs/ (no key)--+-> swagger-ui:8080 (not published)
                         |                   |
    load balancer -------+--/health (no key)-+   (proxies valhalla /status)
                                             |
@@ -97,7 +97,7 @@ Responses from nginx itself are JSON: `401 {"error":"unauthorized"}` and
 
 ## API docs (Swagger UI)
 
-`http://<host>/swagger/` serves Swagger UI for this deployment. The docs are public (no key);
+`http://<host>/docs/` serves Swagger UI for this deployment. The docs are public (no key);
 every other path stays behind `X-API-Key`. Click **Authorize**, paste the key under
 `ApiKeyAuth`, and "Try it out" sends real requests to the same origin, so no CORS setup is
 needed. The key is kept in browser storage until you log out (`PERSIST_AUTHORIZATION`).
@@ -160,7 +160,7 @@ API beyond a trusted network; the API key travels in a header.
 ## Tests
 
 ```bash
-bash tests/nginx-auth.test.sh      # nginx gate, /health and /swagger passthrough against stub upstreams, needs Docker
+bash tests/nginx-auth.test.sh      # nginx gate, /health and /docs passthrough against stub upstreams, needs Docker
 bash tests/openapi.test.sh         # generated spec matches the pinned tag and lints, needs Docker
 cp .env.example .env && docker compose --profile runtime config -q && docker compose --profile build config -q
 terraform -chdir=infra/terraform init -backend=false && terraform -chdir=infra/terraform validate

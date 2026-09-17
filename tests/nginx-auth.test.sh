@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Integration test for the nginx front end. Requires Docker; pulls nginx and a stub upstream.
 # TEMPORAL: la puerta de API key esta deshabilitada, asi que este test verifica el routing
-# (/health, /swagger/, proxy a Valhalla) pero ya no la autenticacion. Ver la nota en
+# (/health, /docs/, proxy a Valhalla) pero ya no la autenticacion. Ver la nota en
 # nginx/templates/default.conf.template para restaurarla.
 set -euo pipefail
 
@@ -130,14 +130,14 @@ assert_eq "no header -> /health 200" "200" "$(status_of "${BASE}/health")"
 assert_eq "/health body comes from upstream" "${STUB_BODY}" "$(curl -s "${BASE}/health" | tr -d '\n')"
 
 # Swagger UI is public; the docs location must keep routing to the docs stub, not to Valhalla.
-assert_eq "no header GET /swagger/ -> 200" "200" "$(status_of "${BASE}/swagger/")"
-assert_eq "no header GET /swagger/ -> body proxied from docs stub" "${DOCS_BODY}" \
-  "$(curl -s "${BASE}/swagger/" | tr -d '\n')"
-assert_eq "no header GET /swagger -> 301" "301" "$(status_of "${BASE}/swagger")"
-assert_eq "no header GET /swagger -> relative Location /swagger/" "/swagger/" "$(location_of "${BASE}/swagger")"
-# /swaggerx no cae en el location de docs: tiene que ir a Valhalla, no a Swagger UI.
-assert_eq "no header GET /swaggerx -> body proxied from valhalla stub" "${STUB_BODY}" \
-  "$(curl -s "${BASE}/swaggerx" | tr -d '\n')"
+assert_eq "no header GET /docs/ -> 200" "200" "$(status_of "${BASE}/docs/")"
+assert_eq "no header GET /docs/ -> body proxied from docs stub" "${DOCS_BODY}" \
+  "$(curl -s "${BASE}/docs/" | tr -d '\n')"
+assert_eq "no header GET /docs -> 301" "301" "$(status_of "${BASE}/docs")"
+assert_eq "no header GET /docs -> relative Location /docs/" "/docs/" "$(location_of "${BASE}/docs")"
+# /docsx no cae en el location de docs: tiene que ir a Valhalla, no a Swagger UI.
+assert_eq "no header GET /docsx -> body proxied from valhalla stub" "${STUB_BODY}" \
+  "$(curl -s "${BASE}/docsx" | tr -d '\n')"
 
 # TEMPORAL: sin key configurada nginx debe arrancar igual, porque el map ya no la consume.
 PORT_B="$(start_nginx "${NGINX_B}" "" || true)"

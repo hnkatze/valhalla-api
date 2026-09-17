@@ -5,7 +5,7 @@
 // La spec viaja dentro de la imagen y se sirve desde el mismo origen, por eso no hace falta CORS.
 window.onload = function () {
   window.ui = SwaggerUIBundle({
-    url: "/swagger/openapi.yaml",
+    url: "/docs/openapi.yaml",
     dom_id: "#swagger-ui",
     deepLinking: true,
     presets: [SwaggerUIBundle.presets.apis, SwaggerUIStandalonePreset],
