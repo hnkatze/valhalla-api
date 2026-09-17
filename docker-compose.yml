@@ -44,6 +44,12 @@ services:
       # behind a load balancer. Loopback is a no-op default for a host reached directly; on
       # AWS this is the VPC CIDR.
       VALHALLA_TRUSTED_PROXY_CIDR: ${VALHALLA_TRUSTED_PROXY_CIDR:-127.0.0.1}
+      # Upstreams y resolver: aqui son nombres de servicio y el DNS embebido de Docker. La
+      # imagen de ECS trae sus propios valores por ENV (localhost), asi que el template es el
+      # mismo en los dos entornos.
+      VALHALLA_RESOLVER: 127.0.0.11
+      VALHALLA_UPSTREAM: http://valhalla:8002
+      VALHALLA_DOCS_UPSTREAM: http://swagger-ui:8080
       # Restrict envsubst to our variables so nginx's own $host, $http_* etc. survive rendering.
       NGINX_ENVSUBST_FILTER: "^VALHALLA_"
     depends_on:

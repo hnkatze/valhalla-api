@@ -28,11 +28,13 @@ server {
     real_ip_header X-Forwarded-For;
     real_ip_recursive on;
 
-    # Docker's embedded DNS plus a variable upstream re-resolves valhalla after it restarts
-    # with a new IP; depends_on only orders the first start.
-    resolver 127.0.0.11 valid=10s ipv6=off;
-    set $valhalla_upstream "http://valhalla:8002";
-    set $swagger_upstream "http://swagger-ui:8080";
+    # Un upstream en variable se re-resuelve cuando valhalla reinicia con otra IP; depends_on
+    # solo ordena el primer arranque. Bajo compose son nombres de servicio resueltos por el DNS
+    # embebido de Docker; en la imagen unica de ECS son literales en localhost, donde el
+    # resolver no llega a consultarse.
+    resolver ${VALHALLA_RESOLVER} valid=10s ipv6=off;
+    set $valhalla_upstream "${VALHALLA_UPSTREAM}";
+    set $swagger_upstream "${VALHALLA_DOCS_UPSTREAM}";
 
     client_max_body_size 1m;
     limit_req zone=valhalla_api burst=40 nodelay;

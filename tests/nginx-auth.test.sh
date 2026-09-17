@@ -52,6 +52,9 @@ start_nginx() {
     -v "${TEMPLATES_DIR}:/etc/nginx/templates:ro" \
     -e "VALHALLA_API_KEY=${key}" \
     -e "VALHALLA_TRUSTED_PROXY_CIDR=127.0.0.1" \
+    -e "VALHALLA_RESOLVER=127.0.0.11" \
+    -e "VALHALLA_UPSTREAM=http://valhalla:8002" \
+    -e "VALHALLA_DOCS_UPSTREAM=http://swagger-ui:8080" \
     -e "NGINX_ENVSUBST_FILTER=^VALHALLA_" \
     "${NGINX_IMAGE}" >/dev/null
   local port
