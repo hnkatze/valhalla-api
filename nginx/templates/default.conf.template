@@ -1,14 +1,20 @@
 # Rendered by the nginx image's envsubst into /etc/nginx/conf.d/default.conf.
 # conf.d files are included inside http {}, so map and limit_req_zone are valid here.
 
+# --- TEMPORAL: puerta de API key deshabilitada -----------------------------------------------
+# El equipo de dev va a proveer la key mas adelante. Hasta entonces Valhalla queda accesible
+# sin autenticacion. Para restaurar la puerta: descomentar el map de abajo y el bloque `if`
+# dentro de `location /`, y volver a poner los asserts de 401 en tests/nginx-auth.test.sh.
+#
 # A 48-char key exceeds the default 64-byte bucket, so nginx refuses to build the map at all.
-map_hash_bucket_size 128;
-
-map $http_x_api_key $valhalla_key_ok {
-    default 0;
-    "" 0;
-    "${VALHALLA_API_KEY}" 1;
-}
+# map_hash_bucket_size 128;
+#
+# map $http_x_api_key $valhalla_key_ok {
+#     default 0;
+#     "" 0;
+#     "${VALHALLA_API_KEY}" 1;
+# }
+# ---------------------------------------------------------------------------------------------
 
 limit_req_zone $binary_remote_addr zone=valhalla_api:10m rate=20r/s;
 
@@ -57,9 +63,10 @@ server {
     }
 
     location / {
-        if ($valhalla_key_ok = 0) {
-            return 401 '{"error":"unauthorized"}';
-        }
+        # TEMPORAL: puerta de API key deshabilitada, ver la nota al inicio del archivo.
+        # if ($valhalla_key_ok = 0) {
+        #     return 401 '{"error":"unauthorized"}';
+        # }
 
         proxy_pass $valhalla_upstream;
         proxy_http_version 1.1;

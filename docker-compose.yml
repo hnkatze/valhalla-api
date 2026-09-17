@@ -39,7 +39,10 @@ services:
     volumes:
       - ./nginx/templates:/etc/nginx/templates:ro
     environment:
-      VALHALLA_API_KEY: ${VALHALLA_API_KEY:?VALHALLA_API_KEY must be set in .env}
+      # TEMPORAL: la puerta de API key esta deshabilitada en el template de nginx, asi que la
+      # key dejo de ser obligatoria. Al restaurar la puerta, volver a:
+      #   ${VALHALLA_API_KEY:?VALHALLA_API_KEY must be set in .env}
+      VALHALLA_API_KEY: ${VALHALLA_API_KEY:-}
       # Source of trusted X-Forwarded-For headers, so nginx can recover the real client IP
       # behind a load balancer. Loopback is a no-op default for a host reached directly; on
       # AWS this is the VPC CIDR.
