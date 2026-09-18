@@ -13,6 +13,8 @@ Self-hosted [Valhalla](https://valhalla.github.io/valhalla/) routing API for Hon
 client --X-API-Key--> nginx:80 --/*-----> valhalla:8002 (not published)
                         |                   |
                         +--/docs/ (no key)--+-> swagger-ui:8080 (not published)
+                        |                   |
+   load balancer -------+--/health (no key)-+   (proxies valhalla /status)
                                             |
                                             +-- /custom_files  <-- pull-tiles.sh <-- S3 (tile set)
                                                                     ^
@@ -33,6 +35,14 @@ published to S3 and pulled by the runtime host.
   comfortably. Tiles are architecture independent; `docker compose` picks the host platform.
 - **nginx API-key gate**: Valhalla has no built-in auth. Port 8002 is never published; only
   nginx is reachable, and it also applies a per-IP rate limit and a 1 MB body cap.
+- **`/health` exempt from the gate**: a load balancer health check cannot send custom headers,
+  so it could never probe Valhalla's `/status` through the gate. `/health` proxies that
+  endpoint instead of returning a canned 200, so it fails when Valhalla does. Behind a load
+  balancer, block `/health` at the listener: health checks reach the target directly and keep
+  working, while the route stays unreachable from outside.
+- **`VALHALLA_TRUSTED_PROXY_CIDR`**: behind a load balancer every request arrives from the
+  balancer's ENI. Without trusting `X-Forwarded-For` from inside the VPC, the per-IP rate
+  limit would collapse into a single global bucket.
 - **Tiles in S3, not built on the host**: the build needs more RAM and CPU time than serving.
   The runtime host only downloads a finished tar, so a replacement instance is ready in minutes.
 
@@ -78,6 +88,7 @@ All Valhalla endpoints are proxied under `/`. Every request needs `X-API-Key`. S
 | `POST /trace_attributes` | Map-match and return edge attributes |
 | `POST /optimized_route` | Traveling-salesman ordering           |
 | `GET /status`       | Service health (used by the healthcheck)  |
+| `GET /health`       | Unauthenticated liveness probe for a load balancer |
 
 `/height` is disabled: elevation tiles are not built (`build_elevation=False`).
 
@@ -149,7 +160,7 @@ API beyond a trusted network; the API key travels in a header.
 ## Tests
 
 ```bash
-bash tests/nginx-auth.test.sh      # nginx gate and /docs passthrough against stub upstreams, needs Docker
+bash tests/nginx-auth.test.sh      # nginx gate, /health and /docs passthrough against stub upstreams, needs Docker
 bash tests/openapi.test.sh         # generated spec matches the pinned tag and lints, needs Docker
 cp .env.example .env && docker compose --profile runtime config -q && docker compose --profile build config -q
 terraform -chdir=infra/terraform init -backend=false && terraform -chdir=infra/terraform validate

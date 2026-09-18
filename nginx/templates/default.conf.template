@@ -1,14 +1,20 @@
 # Rendered by the nginx image's envsubst into /etc/nginx/conf.d/default.conf.
 # conf.d files are included inside http {}, so map and limit_req_zone are valid here.
 
+# --- TEMPORAL: puerta de API key deshabilitada -----------------------------------------------
+# El equipo de dev va a proveer la key mas adelante. Hasta entonces Valhalla queda accesible
+# sin autenticacion. Para restaurar la puerta: descomentar el map de abajo y el bloque `if`
+# dentro de `location /`, y volver a poner los asserts de 401 en tests/nginx-auth.test.sh.
+#
 # A 48-char key exceeds the default 64-byte bucket, so nginx refuses to build the map at all.
-map_hash_bucket_size 128;
-
-map $http_x_api_key $valhalla_key_ok {
-    default 0;
-    "" 0;
-    "${VALHALLA_API_KEY}" 1;
-}
+# map_hash_bucket_size 128;
+#
+# map $http_x_api_key $valhalla_key_ok {
+#     default 0;
+#     "" 0;
+#     "${VALHALLA_API_KEY}" 1;
+# }
+# ---------------------------------------------------------------------------------------------
 
 limit_req_zone $binary_remote_addr zone=valhalla_api:10m rate=20r/s;
 
@@ -19,21 +25,48 @@ server {
     # Relative Location headers survive a non-default NGINX_PORT and a TLS terminator in front.
     absolute_redirect off;
 
-    # Docker's embedded DNS plus a variable upstream re-resolves valhalla after it restarts
-    # with a new IP; depends_on only orders the first start.
-    resolver 127.0.0.11 valid=10s ipv6=off;
-    set $valhalla_upstream "http://valhalla:8002";
-    set $swagger_upstream "http://swagger-ui:8080";
+    # Detras de un load balancer $remote_addr seria la ENI del balanceador para todos los
+    # requests: el rate limit por IP colapsaria en un solo bucket global y X-Real-IP no
+    # serviria. Se confia en X-Forwarded-For solo desde adentro de la VPC, recorriendolo de
+    # derecha a izquierda para que gane la direccion que agrego el balanceador y no la que
+    # pudo haber mandado el cliente.
+    set_real_ip_from ${VALHALLA_TRUSTED_PROXY_CIDR};
+    real_ip_header X-Forwarded-For;
+    real_ip_recursive on;
+
+    # Un upstream en variable se re-resuelve cuando valhalla reinicia con otra IP; depends_on
+    # solo ordena el primer arranque. Bajo compose son nombres de servicio resueltos por el DNS
+    # embebido de Docker; en la imagen unica de ECS son literales en localhost, donde el
+    # resolver no llega a consultarse.
+    resolver ${VALHALLA_RESOLVER} valid=10s ipv6=off;
+    set $valhalla_upstream "${VALHALLA_UPSTREAM}";
+    set $swagger_upstream "${VALHALLA_DOCS_UPSTREAM}";
 
     client_max_body_size 1m;
     limit_req zone=valhalla_api burst=40 nodelay;
     limit_req_status 429;
     error_page 429 = @rate_limited;
 
+    # Health check del target group. Un health check de ALB no puede mandar headers custom,
+    # asi que esta es la unica ruta exenta del gate. Hace proxy al /status de valhalla en vez
+    # de devolver un 200 propio: si valhalla se cae, el chequeo falla en vez de reportar sano
+    # un backend muerto. El listener del ALB responde 404 para /health desde afuera, y los
+    # health checks llegan directo al target sin pasar por las reglas, asi que no queda
+    # accesible desde internet.
+    location = /health {
+        access_log off;
+        proxy_pass $valhalla_upstream/status;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_connect_timeout 2s;
+        proxy_read_timeout 5s;
+    }
+
     location / {
-        if ($valhalla_key_ok = 0) {
-            return 401 '{"error":"unauthorized"}';
-        }
+        # TEMPORAL: puerta de API key deshabilitada, ver la nota al inicio del archivo.
+        # if ($valhalla_key_ok = 0) {
+        #     return 401 '{"error":"unauthorized"}';
+        # }
 
         proxy_pass $valhalla_upstream;
         proxy_http_version 1.1;

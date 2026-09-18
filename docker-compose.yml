@@ -39,7 +39,20 @@ services:
     volumes:
       - ./nginx/templates:/etc/nginx/templates:ro
     environment:
-      VALHALLA_API_KEY: ${VALHALLA_API_KEY:?VALHALLA_API_KEY must be set in .env}
+      # TEMPORAL: la puerta de API key esta deshabilitada en el template de nginx, asi que la
+      # key dejo de ser obligatoria. Al restaurar la puerta, volver a:
+      #   ${VALHALLA_API_KEY:?VALHALLA_API_KEY must be set in .env}
+      VALHALLA_API_KEY: ${VALHALLA_API_KEY:-}
+      # Source of trusted X-Forwarded-For headers, so nginx can recover the real client IP
+      # behind a load balancer. Loopback is a no-op default for a host reached directly; on
+      # AWS this is the VPC CIDR.
+      VALHALLA_TRUSTED_PROXY_CIDR: ${VALHALLA_TRUSTED_PROXY_CIDR:-127.0.0.1}
+      # Upstreams y resolver: aqui son nombres de servicio y el DNS embebido de Docker. La
+      # imagen de ECS trae sus propios valores por ENV (localhost), asi que el template es el
+      # mismo en los dos entornos.
+      VALHALLA_RESOLVER: 127.0.0.11
+      VALHALLA_UPSTREAM: http://valhalla:8002
+      VALHALLA_DOCS_UPSTREAM: http://swagger-ui:8080
       # Restrict envsubst to our variables so nginx's own $host, $http_* etc. survive rendering.
       NGINX_ENVSUBST_FILTER: "^VALHALLA_"
     depends_on:
@@ -61,6 +74,22 @@ services:
       BASE_URL: /docs
       TRY_IT_OUT_ENABLED: "true"
       PERSIST_AUTHORIZATION: "true"
+
+  # --- release profile: the single image the ECS task runs ----------------------------------
+  # The ECS deploy template takes one container per task, so nginx, Valhalla and the docs assets
+  # ship together with the tiles baked in. IMAGE_URI is the ECR tag the pipeline builds and
+  # pushes; locally it falls back to a plain tag so `docker compose --profile release build`
+  # works without any environment.
+  api:
+    profiles: ["release"]
+    image: ${IMAGE_URI:-valhalla-api:local}
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # Reuses the anchor above so the Valhalla version still has a single source of truth.
+        VALHALLA_IMAGE: *valhalla-image
+        SWAGGER_IMAGE: swaggerapi/swagger-ui:v5.33.0
 
   # --- build profile: one-off tile build, container exits when done -------------------------
   valhalla-build:

@@ -1,0 +1,33 @@
+# El pipeline escribe un .env con el URI de S3 antes del build; sin esta lista terminaria
+# dentro de la imagen. Todo lo que no se copia explicitamente en el Dockerfile sobra en el
+# contexto y solo lo hace mas pesado.
+.env
+.env.*
+.git
+.github
+.gitignore
+.gitattributes
+
+infra/
+scripts/
+tests/
+main.tf
+variables.tf
+*.tfvars
+README.md
+
+# El PBF son 71 MB de entrada del build de tiles, no del runtime, y valhalla_tiles/ es el
+# grafo suelto: lo que se sirve es el tar.
+custom_files/*.pbf
+custom_files/valhalla_tiles/
+custom_files/*.zip
+custom_files/*.shp
+custom_files/*.shx
+custom_files/*.dbf
+custom_files/*.prj
+custom_files/default_speeds.json
+custom_files/file_hashes.txt
+custom_files/latest.txt
+
+# El patch se usa solo para regenerar la spec; la imagen lleva el openapi.yaml ya generado.
+docs/openapi.patch.yaml
