@@ -19,8 +19,10 @@ log() { printf '%s [entrypoint] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
 # la base es la de Valhalla. Sin el filtro, envsubst tambien reemplazaria las variables propias
 # de nginx ($host, $remote_addr, $binary_remote_addr) y la config quedaria rota.
 render_templates() {
-  local tpl out defined_envs
-  defined_envs="$(printf '${%s} ' $(printenv | cut -d= -f1 | grep -E "${NGINX_ENVSUBST_FILTER:-^VALHALLA_}"))"
+  local tpl out name defined_envs=""
+  while IFS= read -r name; do
+    defined_envs+="\${${name}} "
+  done < <(printenv | cut -d= -f1 | grep -E "${NGINX_ENVSUBST_FILTER:-^VALHALLA_}")
   shopt -s nullglob
   for tpl in /etc/nginx/templates/*.template; do
     out="/etc/nginx/conf.d/$(basename "${tpl}" .template)"
