@@ -4,8 +4,10 @@ set -euo pipefail
 
 NGINX_IMAGE="${NGINX_IMAGE:-nginx:1.30-alpine}"
 STUB_IMAGE="${STUB_IMAGE:-hashicorp/http-echo:1.0.0}"
-API_KEY="test-key-123"
+# 48 hex chars, the length openssl rand -hex 24 produces; short keys hide nginx map hash sizing errors.
+API_KEY="0123456789abcdef0123456789abcdef0123456789abcdef"
 STUB_BODY='{"ok":true}'
+DOCS_BODY='{"docs":true}'
 
 # Docker Desktop on Windows needs a native path for bind mounts and no MSYS path mangling.
 # The MSYS override is scoped to docker only: globally it would break curl's "-o /dev/null".
@@ -25,6 +27,7 @@ TEMPLATES_DIR="${REPO_ROOT}/nginx/templates"
 SUFFIX="$$-${RANDOM}"
 NETWORK="valhalla-auth-test-${SUFFIX}"
 STUB="valhalla-stub-${SUFFIX}"
+DOCS_STUB="swagger-stub-${SUFFIX}"
 NGINX_A="nginx-auth-test-${SUFFIX}"
 NGINX_B="nginx-auth-test-emptykey-${SUFFIX}"
 
@@ -37,7 +40,7 @@ assert_eq() {
 }
 
 cleanup() {
-  docker rm -f "${NGINX_A}" "${NGINX_B}" "${STUB}" >/dev/null 2>&1 || true
+  docker rm -f "${NGINX_A}" "${NGINX_B}" "${STUB}" "${DOCS_STUB}" >/dev/null 2>&1 || true
   docker network rm "${NETWORK}" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
@@ -48,6 +51,10 @@ start_nginx() {
     -p 127.0.0.1::80 \
     -v "${TEMPLATES_DIR}:/etc/nginx/templates:ro" \
     -e "VALHALLA_API_KEY=${key}" \
+    -e "VALHALLA_TRUSTED_PROXY_CIDR=127.0.0.1" \
+    -e "VALHALLA_RESOLVER=127.0.0.11" \
+    -e "VALHALLA_UPSTREAM=http://valhalla:8002" \
+    -e "VALHALLA_DOCS_UPSTREAM=http://swagger-ui:8080" \
     -e "NGINX_ENVSUBST_FILTER=^VALHALLA_" \
     "${NGINX_IMAGE}" >/dev/null
   local port
@@ -70,6 +77,21 @@ wait_for_http() {
 }
 
 status_of() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
+location_of() { curl -s -o /dev/null -D - "$@" | tr -d '\r' | awk 'tolower($1) == "location:" {print $2}'; }
+# Header names are case-insensitive and values may carry spaces, so only the name is lowered.
+header_of() {
+  local name="$1"; shift
+  curl -s -o /dev/null -D - "$@" | tr -d '\r' \
+    | awk -v n="${name}:" 'tolower($1) == tolower(n) {sub(/^[^:]*:[ \t]*/, ""); print}'
+}
+contains_token() {
+  local haystack="$1" needle="$2"
+  [[ ",$(printf '%s' "${haystack}" | tr -d ' ' | tr '[:upper:]' '[:lower:]')," == *",${needle,,},"* ]]
+}
+assert_header_token() {
+  local name="$1" token="$2" value="$3"
+  if contains_token "${value}" "${token}"; then pass "${name}"; else fail "${name}" "contains ${token}" "${value:-<missing>}"; fi
+}
 
 if [[ ! -d "${TEMPLATES_DIR}" ]]; then
   printf 'FAIL  templates directory missing: %s\n' "${TEMPLATES_DIR}"
@@ -80,6 +102,8 @@ docker network create "${NETWORK}" >/dev/null
 # The alias is what nginx resolves, so the config under test runs unchanged against the stub.
 dkr run -d --name "${STUB}" --network "${NETWORK}" --network-alias valhalla "${STUB_IMAGE}" \
   -listen=:8002 -text="${STUB_BODY}" >/dev/null
+dkr run -d --name "${DOCS_STUB}" --network "${NETWORK}" --network-alias swagger-ui "${STUB_IMAGE}" \
+  -listen=:8080 -text="${DOCS_BODY}" >/dev/null
 
 if ! PORT="$(start_nginx "${NGINX_A}" "${API_KEY}")"; then
   printf 'FAIL  nginx did not start with a configured key\n'
@@ -104,6 +128,46 @@ assert_eq "correct key POST /route -> 200" "200" \
 assert_eq "correct key POST /route -> body proxied from stub" "${STUB_BODY}" \
   "$(curl -s -X POST -H "X-API-Key: ${API_KEY}" -H 'Content-Type: application/json' -d '{}' "${BASE}/route" | tr -d '\n')"
 assert_eq "correct key GET /status -> 200" "200" "$(status_of -H "X-API-Key: ${API_KEY}" "${BASE}/status")"
+
+# Browsers never attach custom headers to the preflight, so nginx must answer OPTIONS itself,
+# before any key check, and advertise X-API-Key or the real request is never sent.
+PREFLIGHT=(-X OPTIONS -H 'Origin: http://localhost:3000' -H 'Access-Control-Request-Method: POST'
+  -H 'Access-Control-Request-Headers: content-type,x-api-key' "${BASE}/route")
+assert_eq "preflight OPTIONS /route without key -> 204" "204" "$(status_of "${PREFLIGHT[@]}")"
+assert_eq "preflight -> Access-Control-Allow-Origin *" "*" \
+  "$(header_of Access-Control-Allow-Origin "${PREFLIGHT[@]}")"
+assert_header_token "preflight -> Allow-Methods includes POST" "post" \
+  "$(header_of Access-Control-Allow-Methods "${PREFLIGHT[@]}")"
+assert_header_token "preflight -> Allow-Headers includes X-API-Key" "x-api-key" \
+  "$(header_of Access-Control-Allow-Headers "${PREFLIGHT[@]}")"
+assert_header_token "preflight -> Allow-Headers includes Content-Type" "content-type" \
+  "$(header_of Access-Control-Allow-Headers "${PREFLIGHT[@]}")"
+assert_eq "preflight -> Access-Control-Max-Age 86400" "86400" \
+  "$(header_of Access-Control-Max-Age "${PREFLIGHT[@]}")"
+# The stub sends no CORS headers, so this proves nginx adds the origin on real responses too.
+assert_eq "correct key POST /route -> Access-Control-Allow-Origin * on the proxied response" "*" \
+  "$(header_of Access-Control-Allow-Origin -X POST -H "X-API-Key: ${API_KEY}" \
+     -H 'Content-Type: application/json' -d '{}' "${BASE}/route")"
+# Without the header on the 401 the browser reports "CORS error" and hides the real status.
+assert_eq "no key POST /route -> 401 still carries Access-Control-Allow-Origin *" "*" \
+  "$(header_of Access-Control-Allow-Origin -X POST -H 'Content-Type: application/json' -d '{}' "${BASE}/route")"
+
+# The ALB health check cannot send X-API-Key, so /health must answer without one and must
+# still reach the upstream: a 200 generated by nginx itself would report a dead Valhalla healthy.
+assert_eq "no header -> /health 200" "200" "$(status_of "${BASE}/health")"
+assert_eq "/health body comes from upstream" "${STUB_BODY}" "$(curl -s "${BASE}/health" | tr -d '\n')"
+assert_eq "/health does not open the gate for /route" "401" "$(status_of -X POST "${BASE}/route")"
+assert_eq "/healthx is not exempt" "401" "$(status_of "${BASE}/healthx")"
+
+# Swagger UI is public; the docs location must not leak the key exemption to the API.
+assert_eq "no header GET /docs/ -> 200" "200" "$(status_of "${BASE}/docs/")"
+assert_eq "no header GET /docs/ -> body proxied from docs stub" "${DOCS_BODY}" \
+  "$(curl -s "${BASE}/docs/" | tr -d '\n')"
+assert_eq "no header GET /docs -> 301" "301" "$(status_of "${BASE}/docs")"
+assert_eq "no header GET /docs -> relative Location /docs/" "/docs/" "$(location_of "${BASE}/docs")"
+assert_eq "no header GET /route -> 401" "401" "$(status_of "${BASE}/route")"
+# /docsx no cae en el location de docs: va a Valhalla, y por lo tanto queda detras del gate.
+assert_eq "no header GET /docsx -> 401" "401" "$(status_of "${BASE}/docsx")"
 
 # An empty configured key must fail closed: nginx either refuses to start or answers 401.
 PORT_B="$(start_nginx "${NGINX_B}" "" || true)"

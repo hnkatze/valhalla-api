@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# cloud-init for Amazon Linux 2023 arm64: Docker + compose plugin, clone repo, pull tiles, run.
+set -euo pipefail
+exec > >(tee -a /var/log/valhalla-user-data.log) 2>&1
+
+APP_DIR="/opt/valhalla-api"
+COMPOSE_VERSION="v5.1.4"
+
+dnf install -y docker git
+systemctl enable --now docker
+
+# AL2023 repos do not ship the compose plugin; install the upstream aarch64 binary.
+install -d /usr/local/lib/docker/cli-plugins
+curl -fsSL "https://github.com/docker/compose/releases/download/$${COMPOSE_VERSION}/docker-compose-linux-aarch64" \
+  -o /usr/local/lib/docker/cli-plugins/docker-compose
+chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+docker compose version
+
+if [[ ! -d "$${APP_DIR}/.git" ]]; then
+  git clone --branch "${git_ref}" --depth 1 "${repo_url}" "$${APP_DIR}"
+fi
+cd "$${APP_DIR}"
+
+umask 077
+cat > .env <<'EOF'
+VALHALLA_API_KEY=${valhalla_api_key}
+NGINX_PORT=80
+TILES_S3_URI=${tiles_s3_uri}
+AWS_REGION=${aws_region}
+EOF
+umask 022
+
+export AWS_REGION="${aws_region}"
+bash scripts/pull-tiles.sh
+docker compose --profile runtime up -d

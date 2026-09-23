@@ -11,3 +11,6 @@ custom_files/
 *.tfstate
 *.tfstate.*
 crash.log
+
+# Local skill-registry cache from the agent tooling, not part of the project
+.atl/
